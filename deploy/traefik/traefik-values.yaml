@@ -1,0 +1,29 @@
+logs:
+  # Traefik logs concern everything that happens to Traefik itself (startup, configuration, events, shutdown, and so on).
+  general:
+    # By default, the logs use a text format (common), but you can
+    # also ask for the json format in the format option
+    # format: json
+    # By default, the level is set to ERROR. Alternative logging levels are DEBUG, PANIC, FATAL, ERROR, WARN, and INFO.
+    level: DEBUG
+  access:
+    enabled: true
+service:
+  spec: 
+    loadBalancerIP: "192.168.1.234"
+    # externalTrafficPolicy: Cluster
+    # loadBalancerIP: "1.2.3.4"
+
+dashboard:
+  enabled: true
+  domain: internal
+
+# Used to hold tls cert data (lets encrypt)
+persistence:
+  enabled: true
+
+additionalArguments:
+  - "--certificatesResolvers.letsencrypt=true"
+  - "--certificatesResolvers.letsencrypt.acme.email=ben@benclouser.com"
+  - "--certificatesResolvers.letsencrypt.acme.storage=/data/acme.json"
+  - "--certificatesResolvers.letsencrypt.acme.httpChallenge.entryPoint=web"

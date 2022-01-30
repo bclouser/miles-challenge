@@ -1,0 +1,37 @@
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRoute
+metadata:
+  name: dashboard
+spec:
+  entryPoints:
+    - web
+    - websecure
+  routes:
+    - match: Host(`miles-challenge.multiplewanda.com`) && (PathPrefix(`/dashboard`) || PathPrefix(`/api`))
+      kind: Rule
+      services:
+        - name: api@internal
+          kind: TraefikService
+  tls:
+    certResolver: "letsencrypt"
+    # I didn't need this. The lets encrypt validation failed because i didn't have any routes for main "multiplewanda.com"
+    # domains:
+    #   - main: "multiplewanda.com"
+    #     sans:
+    #       - "miles-challenge.multiplewanda.com"
+    
+---
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRoute
+metadata:
+  name: accounts
+spec:
+  entryPoints:
+    - web
+  routes:
+    - match: Host(`traefik-local`) && (PathPrefix(`/accounts`))
+      kind: Rule
+      services:
+        - name: accounts
+          kind: Service
+          port: 80
