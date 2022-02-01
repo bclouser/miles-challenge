@@ -43,7 +43,7 @@ func displayAuthInstructions(config *oauth2.Config, authCodeInputUrl string) {
 }
 
 func SetAuthCodeRetrievedFromWeb(authCode string) error {
-	tok, err := savedConfig.Exchange(context.TODO(), authCode)
+	tok, err := savedConfig.Exchange(context.TODO(), authCode, oauth2.AccessTypeOffline)
 	if err != nil {
 		fmt.Println("Unable to retrieve token using auth code provided: " + err.Error())
 		return err
@@ -85,7 +85,6 @@ func saveToken(path string, token *oauth2.Token) error {
 
 func Initialize(credentialsFilePath, tokenPath, authCodeInputUrl string) error {
 	savedTokenPath = tokenPath
-	fmt.Println("BEN SAYS: credentialsFilepath: " + credentialsFilePath)
 	b, err := ioutil.ReadFile(credentialsFilePath)
 	if err != nil {
 		fmt.Println("Unable to read client credentials json file: %v", err)
@@ -98,9 +97,6 @@ func Initialize(credentialsFilePath, tokenPath, authCodeInputUrl string) error {
 		fmt.Println("Unable to parse client secret file to config: %v", err)
 		return errors.New("Unable to parse client secret file to config: " + err.Error())
 	}
-
-	fmt.Println("Config looks like")
-	fmt.Println(config)
 
 	client := getClient(config, tokenPath, authCodeInputUrl)
 

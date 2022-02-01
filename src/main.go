@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/bclouser/miles-challenge/sheets"
+	"github.com/bclouser/miles-challenge/slack"
 	"github.com/go-co-op/gocron"
 	"github.com/gorilla/mux"
 )
@@ -35,6 +36,7 @@ var APIClientConfig StravaAPIClient
 // }
 
 type Config struct {
+	SlackChannelHookUrl            string
 	StravaAPIClientID              string
 	StravaAPIClientSecret          string
 	StravaAPITokenEndpoint         string
@@ -208,6 +210,7 @@ func AddUserCredentials(user StravaUser) error {
 }
 
 func Init() error {
+	config.SlackChannelHookUrl = os.Getenv("SLACK_CHANNEL_HOOK_URL")
 	config.StravaAPIClientID = os.Getenv("STRAVA_API_CLIENT_ID")
 	config.StravaAPIClientSecret = os.Getenv("STRAVA_API_CLIENT_SECRET")
 	config.StravaAPITokenEndpoint = os.Getenv("STRAVA_TOKEN_ENDPOINT")
@@ -215,6 +218,9 @@ func Init() error {
 	config.GoogleCloudCredentialsFilePath = os.Getenv("GOOGLE_CLOUD_CREDENTIALS_PATH")
 	config.NonVolatileStorageDir = os.Getenv("NON_VOLATILE_STORAGE_DIR")
 
+	if config.SlackChannelHookUrl == "" {
+		return errors.New("Error: `SLACK_CHANNEL_HOOK_URL` env variable not set")
+	}
 	if config.StravaAPIClientID == "" {
 		return errors.New("Error: `STRAVA_API_CLIENT_ID` env variable not set")
 	}
@@ -248,16 +254,6 @@ func Init() error {
 			return err
 		}
 		fmt.Println(strconv.Itoa(len(users)) + " configured users...")
-		// if len(users) > 0 {
-		// 	reports, err := CreateDailyReport(users)
-		// 	if err != nil {
-		// 		fmt.Println("Failed to create reports: " + err.Error())
-		// 		return err
-		// 	}
-		// 	fmt.Println("Miles this year: " + strconv.FormatFloat(float64(reports[0].YearToDate.RunMiles), 'f', 3, 32))
-		// 	fmt.Println("Lifting miles this year: " + strconv.FormatFloat(float64(reports[0].YearToDate.LiftMiles), 'f', 3, 32))
-		// 	fmt.Println("Total challenge miles this year: " + strconv.FormatFloat(float64(reports[0].YearToDate.LiftMiles+reports[0].YearToDate.RunMiles+reports[0].YearToDate.HikeMiles), 'f', 3, 32))
-		// }
 	} else {
 		fmt.Println("No strava user's file found. Add users to create it")
 	}
@@ -281,17 +277,6 @@ func main() {
 	rtr := mux.NewRouter()
 
 	rtr.HandleFunc("/api/gc/auth-code", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Println("Got request for auth-code")
-		// codeReq := struct {
-		// 	AuthCode string `json:"code"`
-		// }{}
-		// body, _ := ioutil.ReadAll(r.Body)
-		// if json.Unmarshal(body, &codeReq) != nil {
-		// 	fmt.Println("failed to unmarshal json request into expected code request")
-		// 	http.Error(w, "Failed to unmarhsal json request into expected input", http.StatusBadRequest)
-		// 	return
-		// }
-
 		query := r.URL.Query()
 		code := query.Get("code")
 		if code == "" {
@@ -310,11 +295,14 @@ func main() {
 		}
 	}).Methods("GET")
 
-	rtr.HandleFunc("/api/slack", func(w http.ResponseWriter, r *http.Request) {
+	rtr.HandleFunc("/api/slack/post-report", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Println("Request from: " + html.EscapeString(r.URL.Path))
-		query := r.URL.Query()
-		fmt.Println(query)
-		fmt.Fprintf(w, "Back to you slack, %q", html.EscapeString(r.URL.Path))
+		report := "*    Requested Report!* \n\n" + GenerateFormattedReport()
+		slack.SendChannelMessage(config.SlackChannelHookUrl, report)
+		if err != nil {
+			http.Error(w, "Failed to post report", http.StatusInternalServerError)
+			return
+		}
 	})
 
 	rtr.HandleFunc("/api/strava/auth-code", func(w http.ResponseWriter, r *http.Request) {
@@ -373,8 +361,8 @@ func main() {
 			return
 		}
 		prettyJson, _ := json.MarshalIndent(&userReports[0], "", "    ")
+		fmt.Fprintln(w, "Current Data From Strava:")
 		fmt.Fprintln(w, string(prettyJson[:]))
-		//json.NewEncoder(w).Encode(&userReports[0])
 	})
 
 	rtr.PathPrefix("/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -384,9 +372,9 @@ func main() {
 
 	http.Handle("/", rtr)
 
-	fmt.Println("adding gocron")
 	s := gocron.NewScheduler(time.UTC)
-	s.Every(10).Minute().Do(DoDailyReport)
+	// Daily at 8:30 pm
+	s.Every(1).Day().At("20:30").Do(DoDailyReport)
 	s.StartAsync()
 
 	sheets.GetSheetData(config.GoogleSheetsID, config.GoogleCloudCredentialsFilePath, config.GoogleCloudSavedTokenPath, authCodeInputUrl)
