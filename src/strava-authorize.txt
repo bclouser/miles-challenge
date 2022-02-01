@@ -1,1 +1,1 @@
-http://www.strava.com/oauth/authorize?client_id=77080&response_type=code&redirect_uri=http://localhost:8081/exchange_token&approval_prompt=force&scope=read,activity:read
+http://www.strava.com/oauth/authorize?client_id=77080&response_type=code&redirect_uri=https://miles-challenge.multiplewanda.com/api/strava/auth-code&approval_prompt=force&scope=read,activity:read

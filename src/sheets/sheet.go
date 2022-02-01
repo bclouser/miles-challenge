@@ -3,11 +3,12 @@ package sheets
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"net/http"
 	"os"
+	"strconv"
 
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
@@ -15,36 +16,43 @@ import (
 	"google.golang.org/api/sheets/v4"
 )
 
+var savedTokenPath string
+var savedConfig *oauth2.Config
+var initialized bool = false
+
 // Retrieve a token, saves the token, then returns the generated client.
-func getClient(config *oauth2.Config) *http.Client {
+func getClient(config *oauth2.Config, tokenFilePath, authCodeInputUrl string) *http.Client {
 	// The file token.json stores the user's access and refresh tokens, and is
 	// created automatically when the authorization flow completes for the first
 	// time.
-	tokFile := "token.json"
-	tok, err := tokenFromFile(tokFile)
+	tok, err := tokenFromFile(tokenFilePath)
 	if err != nil {
-		tok = getTokenFromWeb(config)
-		saveToken(tokFile, tok)
+		displayAuthInstructions(config, authCodeInputUrl)
+		return nil
 	}
 	return config.Client(context.Background(), tok)
 }
 
 // Request a token from the web, then returns the retrieved token.
-func getTokenFromWeb(config *oauth2.Config) *oauth2.Token {
+func displayAuthInstructions(config *oauth2.Config, authCodeInputUrl string) {
 	authURL := config.AuthCodeURL("state-token", oauth2.AccessTypeOffline)
-	fmt.Printf("Go to the following link in your browser then type the "+
-		"authorization code: \n%v\n", authURL)
+	fmt.Printf("\nGo to the following link in your browser and authorize API access  "+
+		"authorization code: \n%v\n\n", authURL)
+	// save off config so it can be accessed during later call from web handler
+	savedConfig = config
+}
 
-	var authCode string
-	if _, err := fmt.Scan(&authCode); err != nil {
-		log.Fatalf("Unable to read authorization code: %v", err)
-	}
-
-	tok, err := config.Exchange(context.TODO(), authCode)
+func SetAuthCodeRetrievedFromWeb(authCode string) error {
+	tok, err := savedConfig.Exchange(context.TODO(), authCode)
 	if err != nil {
-		log.Fatalf("Unable to retrieve token from web: %v", err)
+		fmt.Println("Unable to retrieve token using auth code provided: " + err.Error())
+		return err
 	}
-	return tok
+	err = saveToken(savedTokenPath, tok)
+	if err != nil {
+		fmt.Println("Unable to save access token. Error: " + err.Error())
+	}
+	return nil
 }
 
 // Retrieves a token from a local file.
@@ -60,40 +68,79 @@ func tokenFromFile(file string) (*oauth2.Token, error) {
 }
 
 // Saves a token to a file path.
-func saveToken(path string, token *oauth2.Token) {
+func saveToken(path string, token *oauth2.Token) error {
 	fmt.Printf("Saving credential file to: %s\n", path)
 	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0600)
 	if err != nil {
-		log.Fatalf("Unable to cache oauth token: %v", err)
+		return err
 	}
 	defer f.Close()
-	json.NewEncoder(f).Encode(token)
+	err = json.NewEncoder(f).Encode(token)
+	if err != nil {
+		return err
+	}
+	initialized = true
+	return nil
 }
 
-func GetSheetData() (map[string]float32, error) {
-	ctx := context.Background()
-	b, err := ioutil.ReadFile("credentials.json")
+func Initialize(credentialsFilePath, tokenPath, authCodeInputUrl string) error {
+	savedTokenPath = tokenPath
+	fmt.Println("BEN SAYS: credentialsFilepath: " + credentialsFilePath)
+	b, err := ioutil.ReadFile(credentialsFilePath)
 	if err != nil {
-		log.Fatalf("Unable to read client secret file: %v", err)
+		fmt.Println("Unable to read client credentials json file: %v", err)
+		return errors.New("Unable to read client credentials json file " + err.Error())
 	}
 
 	// If modifying these scopes, delete your previously saved token.json.
 	config, err := google.ConfigFromJSON(b, "https://www.googleapis.com/auth/spreadsheets.readonly")
 	if err != nil {
-		log.Fatalf("Unable to parse client secret file to config: %v", err)
+		fmt.Println("Unable to parse client secret file to config: %v", err)
+		return errors.New("Unable to parse client secret file to config: " + err.Error())
 	}
-	client := getClient(config)
+
+	fmt.Println("Config looks like")
+	fmt.Println(config)
+
+	client := getClient(config, tokenPath, authCodeInputUrl)
+
+	if client == nil {
+		fmt.Println("Initialization incomplete until the authorization code is provided via the url: " + authCodeInputUrl)
+		initialized = false
+	} else {
+		fmt.Println("Initialization successful!")
+		initialized = true
+	}
+
+	return nil
+}
+
+func GetSheetData(spreadsheetId, credentialsFilePath, tokenPath, authCodeInputUrl string) (map[string]float32, error) {
+	athletes := map[string]float32{}
+	if !initialized {
+		return athletes, errors.New("Sheets not successfully initialized yet")
+	}
+	ctx := context.Background()
+	b, err := ioutil.ReadFile(credentialsFilePath)
+	if err != nil {
+		fmt.Println("Unable to read client secret file: %v", err)
+	}
+
+	// If modifying these scopes, delete your previously saved token.json.
+	config, err := google.ConfigFromJSON(b, "https://www.googleapis.com/auth/spreadsheets.readonly")
+	if err != nil {
+		fmt.Println("Unable to parse client secret file to config: %v", err)
+	}
+	client := getClient(config, tokenPath, authCodeInputUrl)
 
 	srv, err := sheets.NewService(ctx, option.WithHTTPClient(client))
 	if err != nil {
-		log.Fatalf("Unable to retrieve Sheets client: %v", err)
+		fmt.Println("Unable to retrieve Sheets client: %v", err)
 	}
 
 	// Prints the names and majors of students in a sample spreadsheet:
 	// https://docs.google.com/spreadsheets/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms/edit
-	spreadsheetId := "1-znONFARQTuyyYRXHyyTv63lsd_aHXLI3rlZ1T0N9iE"
-	readRange := "Sheet1!Q2:R"
-	athletes := map[string]float32{}
+	readRange := "Sheet1!Q2:R4"
 	resp, err := srv.Spreadsheets.Values.Get(spreadsheetId, readRange).Do()
 	if err != nil {
 		return athletes, err
@@ -107,7 +154,8 @@ func GetSheetData() (map[string]float32, error) {
 		for _, row := range resp.Values {
 			// Print columns A and E, which correspond to indices 0 and 4.
 			fmt.Printf("%s, %s\n", row[0], row[1])
-			athletes[row[0].(string)] = row[1].(float32)
+			parsedValue, _ := strconv.ParseFloat(row[1].(string), 32)
+			athletes[row[0].(string)] = float32(parsedValue)
 		}
 	}
 	return athletes, nil

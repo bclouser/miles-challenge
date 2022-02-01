@@ -15,7 +15,7 @@ service:
     # loadBalancerIP: "1.2.3.4"
 
 dashboard:
-  enabled: true
+  enabled: false
   domain: internal
 
 # Used to hold tls cert data (lets encrypt)

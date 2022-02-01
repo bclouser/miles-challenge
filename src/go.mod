@@ -4,6 +4,7 @@ go 1.17
 
 require (
 	github.com/go-co-op/gocron v1.11.0
+	github.com/gorilla/mux v1.8.0
 	golang.org/x/oauth2 v0.0.0-20211104180415-d3ed0bb246c8
 	google.golang.org/api v0.65.0
 )

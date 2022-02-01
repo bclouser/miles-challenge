@@ -16,12 +16,13 @@ import (
 	"time"
 
 	"github.com/bclouser/miles-challenge/sheets"
-
 	"github.com/go-co-op/gocron"
+	"github.com/gorilla/mux"
 )
 
 const stravaUsersFileName = "strava_users.json"
 const stravaApiClientFileName = "strava_api_client.json"
+const authCodeInputUrl = "https://miles-challenge.multiplewanda.com/api/gc/auth-code"
 
 var APIClientConfig StravaAPIClient
 
@@ -32,6 +33,18 @@ var APIClientConfig StravaAPIClient
 // 	}
 // 	return out
 // }
+
+type Config struct {
+	StravaAPIClientID              string
+	StravaAPIClientSecret          string
+	StravaAPITokenEndpoint         string
+	GoogleSheetsID                 string
+	GoogleCloudCredentialsFilePath string
+	GoogleCloudSavedTokenPath      string // Where the saved token will be stored
+	NonVolatileStorageDir          string
+}
+
+var config Config
 
 func metersToMiles(meters float32) float32 {
 	const metersPerMile float32 = 1609.344
@@ -137,6 +150,7 @@ func GetUserActivitiesForCurrentYear(accessToken string) ([]SummaryActivity, err
 	return activities, nil
 }
 
+// Function legacy... We don't have a strava config file anymore
 func ReadStravaConfig() (StravaAPIClient, error) {
 	apiConfig := StravaAPIClient{}
 	currentDir, _ := os.Getwd()
@@ -150,8 +164,7 @@ func ReadStravaConfig() (StravaAPIClient, error) {
 }
 
 func ReadUserCredentials() ([]StravaUser, error) {
-	currentDir, _ := os.Getwd()
-	data, err := ioutil.ReadFile(currentDir + "/" + stravaUsersFileName)
+	data, err := ioutil.ReadFile(config.NonVolatileStorageDir + "/" + stravaUsersFileName)
 	if err != nil {
 		fmt.Println("Error reading strava users from file", err.Error())
 		return nil, err
@@ -164,8 +177,7 @@ func ReadUserCredentials() ([]StravaUser, error) {
 func AddUserCredentials(user StravaUser) error {
 	// Should we care about duplicates????
 	users := []StravaUser{}
-	currentDir, _ := os.Getwd()
-	if _, err := os.Stat(currentDir + "/" + stravaUsersFileName); err == nil {
+	if _, err := os.Stat(config.NonVolatileStorageDir + "/" + stravaUsersFileName); err == nil {
 		existingUsers, err := ReadUserCredentials()
 		if err != nil {
 			fmt.Println("Failed to read in existing strava users from file. Error: " + err.Error())
@@ -192,23 +204,44 @@ func AddUserCredentials(user StravaUser) error {
 		fmt.Println("Failed to marshal file as json: " + err.Error())
 		return err
 	}
-	return ioutil.WriteFile(currentDir+"/"+stravaUsersFileName, fileBuf, 0755)
+	return ioutil.WriteFile(config.NonVolatileStorageDir+"/"+stravaUsersFileName, fileBuf, 0755)
 }
 
 func Init() error {
-	currentDir, _ := os.Getwd()
-	if _, err := os.Stat(currentDir + "/" + stravaApiClientFileName); err != nil {
-		fmt.Println("No strava api client config file found. Halting application")
-		return errors.New("No strava api client config file found")
+	config.StravaAPIClientID = os.Getenv("STRAVA_API_CLIENT_ID")
+	config.StravaAPIClientSecret = os.Getenv("STRAVA_API_CLIENT_SECRET")
+	config.StravaAPITokenEndpoint = os.Getenv("STRAVA_TOKEN_ENDPOINT")
+	config.GoogleSheetsID = os.Getenv("GOOGLE_SHEETS_SHEET_ID")
+	config.GoogleCloudCredentialsFilePath = os.Getenv("GOOGLE_CLOUD_CREDENTIALS_PATH")
+	config.NonVolatileStorageDir = os.Getenv("NON_VOLATILE_STORAGE_DIR")
+
+	if config.StravaAPIClientID == "" {
+		return errors.New("Error: `STRAVA_API_CLIENT_ID` env variable not set")
 	}
-	var err error
-	APIClientConfig, err = ReadStravaConfig()
-	if err != nil {
-		fmt.Println("Failed to read in strava api config file")
-		return errors.New("Faild to parse strava api client config file. Error: " + err.Error())
+	if config.StravaAPIClientSecret == "" {
+		return errors.New("Error: `STRAVA_API_CLIENT_SECRET` env variable not set")
 	}
-	if _, err := os.Stat(currentDir + "/" + stravaUsersFileName); err == nil {
-		fmt.Println("Stored config exists!")
+	if config.StravaAPITokenEndpoint == "" {
+		return errors.New("Error: `STRAVA_TOKEN_ENDPOINT` env variable not set")
+	}
+	if config.GoogleSheetsID == "" {
+		return errors.New("Error: `GOOGLE_SHEETS_SHEET_ID` env variable not set")
+	}
+	if config.GoogleCloudCredentialsFilePath == "" {
+		return errors.New("Error: `GOOGLE_CLOUD_CREDENTIALS_PATH` env variable not set")
+	}
+	if config.NonVolatileStorageDir == "" {
+		return errors.New("Error: `NON_VOLATILE_STORAGE_DIR` env variable not set")
+	}
+
+	config.GoogleCloudSavedTokenPath = config.NonVolatileStorageDir + "/gc-token.json"
+
+	APIClientConfig.ClientID = config.StravaAPIClientID
+	APIClientConfig.ClientSecret = config.StravaAPIClientSecret
+	APIClientConfig.TokenEndpoint = config.StravaAPITokenEndpoint
+
+	if _, err := os.Stat(config.NonVolatileStorageDir + "/" + stravaUsersFileName); err == nil {
+		fmt.Println("Stored strava users file exists!")
 		users, err := ReadUserCredentials()
 		if err != nil {
 			fmt.Println("Failed to read in credentials for users: " + err.Error())
@@ -226,27 +259,65 @@ func Init() error {
 		// 	fmt.Println("Total challenge miles this year: " + strconv.FormatFloat(float64(reports[0].YearToDate.LiftMiles+reports[0].YearToDate.RunMiles+reports[0].YearToDate.HikeMiles), 'f', 3, 32))
 		// }
 	} else {
-		fmt.Println("Stored config does not exist. Add users to make it")
+		fmt.Println("No strava user's file found. Add users to create it")
 	}
-	return nil
+
+	// Initialize google cloud api stuffs
+	err := sheets.Initialize(config.GoogleCloudCredentialsFilePath,
+		config.GoogleCloudSavedTokenPath,
+		authCodeInputUrl)
+
+	return err
+
 }
 
 func main() {
-
 	err := Init()
 	if err != nil {
-		fmt.Println("Failed to initialize. Error: " + err.Error())
+		fmt.Println("Initialization failure: " + err.Error())
 		return
 	}
 
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	rtr := mux.NewRouter()
+
+	rtr.HandleFunc("/api/gc/auth-code", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Println("Got request for auth-code")
+		// codeReq := struct {
+		// 	AuthCode string `json:"code"`
+		// }{}
+		// body, _ := ioutil.ReadAll(r.Body)
+		// if json.Unmarshal(body, &codeReq) != nil {
+		// 	fmt.Println("failed to unmarshal json request into expected code request")
+		// 	http.Error(w, "Failed to unmarhsal json request into expected input", http.StatusBadRequest)
+		// 	return
+		// }
+
+		query := r.URL.Query()
+		code := query.Get("code")
+		if code == "" {
+			http.Error(w, "Missing code in query params", http.StatusBadRequest)
+			return
+		}
+		scope := query.Get("scope")
+		if scope == "" {
+			http.Error(w, "Missing scope in query params", http.StatusBadRequest)
+			return
+		}
+
+		err := sheets.SetAuthCodeRetrievedFromWeb(code)
+		if err != nil {
+			fmt.Println("Failed to get token from auth code: " + err.Error())
+		}
+	}).Methods("GET")
+
+	rtr.HandleFunc("/api/slack", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Println("Request from: " + html.EscapeString(r.URL.Path))
 		query := r.URL.Query()
 		fmt.Println(query)
-		fmt.Fprintf(w, "Hello, %q", html.EscapeString(r.URL.Path))
+		fmt.Fprintf(w, "Back to you slack, %q", html.EscapeString(r.URL.Path))
 	})
 
-	http.HandleFunc("/exchange_token", func(w http.ResponseWriter, r *http.Request) {
+	rtr.HandleFunc("/api/strava/auth-code", func(w http.ResponseWriter, r *http.Request) {
 		query := r.URL.Query()
 		auth_code := query["code"][0]
 		formData := url.Values{
@@ -256,7 +327,7 @@ func main() {
 			"grant_type":    {"authorization_code"},
 		}
 		// Send request to strava to authorize user
-		req, err := http.NewRequest(http.MethodPost, "https://www.strava.com/oauth/token", strings.NewReader(formData.Encode()))
+		req, err := http.NewRequest(http.MethodPost, APIClientConfig.TokenEndpoint, strings.NewReader(formData.Encode()))
 		if err != nil {
 			fmt.Println("Failed to create request to strava")
 			http.Error(w, "Failed to create request to strava", http.StatusInternalServerError)
@@ -294,8 +365,8 @@ func main() {
 			return
 		}
 
-		fmt.Fprintln(w, "Hello "+user.Athlete.Firstname+", thanks for registering. Your strava data will be included from now on")
-		userReports, err := CreateDailyReport([]StravaUser{user})
+		fmt.Fprintln(w, "Hello "+user.Athlete.Firstname+", thanks for registering. Your strava data will be included in the challange from now on")
+		userReports, err := GetStravaReport([]StravaUser{user})
 		if err != nil {
 			fmt.Println("Failed to Create Report: " + err.Error())
 			http.Error(w, "Failed to create report. Error: "+err.Error(), http.StatusInternalServerError)
@@ -306,13 +377,20 @@ func main() {
 		//json.NewEncoder(w).Encode(&userReports[0])
 	})
 
-	//gocron.Every(1).Day().At("10:30").Do(DoDailyReport)
+	rtr.PathPrefix("/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Println("Unmatched request for: " + r.Method + " " + html.EscapeString(r.URL.Path))
+		fmt.Fprintf(w, "Hello, %q", html.EscapeString(r.URL.Path))
+	})
+
+	http.Handle("/", rtr)
+
 	fmt.Println("adding gocron")
 	s := gocron.NewScheduler(time.UTC)
-	s.Every(1).Minute().Do(DoDailyReport)
+	s.Every(10).Minute().Do(DoDailyReport)
 	s.StartAsync()
 
-	sheets.GetSheetData()
+	sheets.GetSheetData(config.GoogleSheetsID, config.GoogleCloudCredentialsFilePath, config.GoogleCloudSavedTokenPath, authCodeInputUrl)
 
+	fmt.Println("Starting web server... on port 8081")
 	log.Fatal(http.ListenAndServe(":8081", nil))
 }

@@ -98,7 +98,7 @@ func DoDailyReport() {
 	}
 
 	// Get data from google sheets
-	liftingReports, err := sheets.GetSheetData()
+	liftingReports, err := sheets.GetSheetData(config.GoogleSheetsID, config.GoogleCloudCredentialsFilePath, config.GoogleCloudSavedTokenPath, authCodeInputUrl)
 	if err != nil {
 		fmt.Println("Failed to retrieve lifting-miles from google sheet. Error: " + err.Error())
 		return
@@ -115,6 +115,6 @@ func DoDailyReport() {
 	}
 
 	// At this point we have our report, we need to reach out to slack
-
-	fmt.Println("Got output " + string(out[:]))
+	fmt.Println("Athlete Report: ")
+	fmt.Println(stravaAthleteReports)
 }
