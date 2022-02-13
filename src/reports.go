@@ -142,11 +142,11 @@ func GenerateFormattedReport() string {
 			"    Miles Run this Year:     " + floatStr(athlete.YearToDate.RunMiles) + "\n" +
 			"    Miles Hiked this Year:   " + floatStr(athlete.YearToDate.HikeMiles) + "\n" +
 			"    Miles* Lifted this Year: " + floatStr(athlete.YearToDate.LiftMiles) + "\n" +
-			"    Total Challenge Miles: *" + floatStr(athlete.YearToDate.Total()) + "*\n\n\n"
+			"    Total Challenge Miles: *" + floatStr(athlete.YearToDate.Total()) + "*\n"
 
 		// Add trailing line only if there is another user
 		if i+1 != len(athleteReports) {
-			userReport += "    -------------------------- \n\n\n"
+			userReport += "    -------------------------- \n"
 		}
 
 		formattedReport += userReport

@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"github.com/bclouser/miles-challenge/sheets"
-	"github.com/bclouser/miles-challenge/slack"
+	// "github.com/bclouser/miles-challenge/slack"
 	"github.com/go-co-op/gocron"
 	"github.com/gorilla/mux"
 )
@@ -298,11 +298,13 @@ func main() {
 	rtr.HandleFunc("/api/slack/post-report", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Println("Request from: " + html.EscapeString(r.URL.Path))
 		report := "*    Requested Report!* \n\n" + GenerateFormattedReport()
-		slack.SendChannelMessage(config.SlackChannelHookUrl, report)
-		if err != nil {
-			http.Error(w, "Failed to post report", http.StatusInternalServerError)
-			return
-		}
+
+		// reqStruct := struct {
+		// 	Text string `json:"text"`
+		// }{Text: report}
+
+		// data, _ := json.Marshal(reqStruct)
+		fmt.Fprintln(w, report)
 	})
 
 	rtr.HandleFunc("/api/strava/auth-code", func(w http.ResponseWriter, r *http.Request) {
@@ -372,7 +374,12 @@ func main() {
 
 	http.Handle("/", rtr)
 
-	s := gocron.NewScheduler(time.UTC)
+	newYork, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		fmt.Println("Failed to load timezone America/New_York. Error: " + err.Error())
+		return
+	}
+	s := gocron.NewScheduler(newYork)
 	// Daily at 8:30 pm
 	s.Every(1).Day().At("20:30").Do(DoDailyReport)
 	s.StartAsync()
