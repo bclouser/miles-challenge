@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"time"
 
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
@@ -30,7 +31,11 @@ func getClient(config *oauth2.Config, tokenFilePath, authCodeInputUrl string) *h
 		displayAuthInstructions(config, authCodeInputUrl)
 		return nil
 	}
-	return config.Client(context.Background(), tok)
+	client := config.Client(context.Background(), tok)
+
+	// Save off the (potentially refreshed) token
+	saveToken(tokenFilePath, tok)
+	return client
 }
 
 // Request a token from the web, then returns the retrieved token.
@@ -69,7 +74,7 @@ func tokenFromFile(file string) (*oauth2.Token, error) {
 
 // Saves a token to a file path.
 func saveToken(path string, token *oauth2.Token) error {
-	fmt.Printf("Saving credential file to: %s\n", path)
+	fmt.Printf("Saving oauth2 token file to: %s\n", path)
 	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0600)
 	if err != nil {
 		return err
@@ -111,10 +116,34 @@ func Initialize(credentialsFilePath, tokenPath, authCodeInputUrl string) error {
 	return nil
 }
 
-func GetSheetData(spreadsheetId, credentialsFilePath, tokenPath, authCodeInputUrl string) (map[string]float32, error) {
-	athletes := map[string]float32{}
+type LiftSession struct {
+	Date           time.Time
+	MinuteDuration int
+	MileConversion float32
+}
+
+type SheetAthlete struct {
+	Name          string
+	StartRowIndex int
+	StopRowIndex  int
+}
+
+func parseAthleteColumns(sheetsData sheets.ValueRange, startIndex, stopIndex int) ([]LiftSession, error) {
+	// Do the actual parsing
+	return []LiftSession{}, nil
+}
+
+func GetAthleteLiftData(spreadsheetId, credentialsFilePath, tokenPath, authCodeInputUrl string) (map[string][]LiftSession, error) {
+
+	athletesInSheet := []SheetAthlete{
+		SheetAthlete{"Leben", 0, 3},   // leben columns A - D (0 - 3)
+		SheetAthlete{"Ben", 5, 8},     // Ben columns F - I (5 - 8)
+		SheetAthlete{"Peter", 10, 13}, // Peter columns K - N (10 - 13)
+	}
+
+	athleteLifts := map[string][]LiftSession{}
 	if !initialized {
-		return athletes, errors.New("Sheets not successfully initialized yet")
+		return athleteLifts, errors.New("Sheets not successfully initialized yet")
 	}
 	ctx := context.Background()
 	b, err := ioutil.ReadFile(credentialsFilePath)
@@ -134,25 +163,55 @@ func GetSheetData(spreadsheetId, credentialsFilePath, tokenPath, authCodeInputUr
 		fmt.Println("Unable to retrieve Sheets client: %v", err)
 	}
 
-	// Prints the names and majors of students in a sample spreadsheet:
-	// https://docs.google.com/spreadsheets/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms/edit
-	readRange := "Sheet1!Q2:R4"
+	// We just grab 300 rows and hope that is enough
+	readRange := "Sheet1!A3:N300"
+
 	resp, err := srv.Spreadsheets.Values.Get(spreadsheetId, readRange).Do()
 	if err != nil {
-		return athletes, err
+		return athleteLifts, err
 	}
 
 	if len(resp.Values) == 0 {
 		fmt.Println("No data found.")
-		return athletes, nil
-	} else {
-		fmt.Println("Name, Lifting miles")
-		for _, row := range resp.Values {
-			// Print columns A and E, which correspond to indices 0 and 4.
-			fmt.Printf("%s, %s\n", row[0], row[1])
-			parsedValue, _ := strconv.ParseFloat(row[1].(string), 32)
-			athletes[row[0].(string)] = float32(parsedValue)
-		}
+		return athleteLifts, nil
 	}
-	return athletes, nil
+
+	for _, athlete := range athletesInSheet {
+		athleteLifts[athlete.Name], err = parseAthleteColumns(*resp, athlete.StartRowIndex, athlete.StopRowIndex)
+		if err != nil {
+			return athleteLifts, err
+		}
+		fmt.Println(athlete.Name + " total number of sessions: " + strconv.Itoa(len(athleteLifts[athlete.Name])))
+	}
+	return athleteLifts, nil
+	// fmt.Println("Date, Time, Miles")
+	// for _, row := range resp.Values {
+	// 	// Leben A - D (0 - 3)
+	// 	// Ben F - I (5 - 8)
+	// 	// Peter K - N (10 - 13)
+	// 	// fmt.Printf("%s, %d, %s\n", row[0], row[1])
+	// 	parsedValue, _ := strconv.ParseFloat(row[1].(string), 32)
+	// 	athletes[row[0].(string)] = float32(parsedValue)
+	// }
+
+	// Read the totals and make sure our code matches... just a check, mostly to verify ben's code isn't crazy
+	// readRange := "Sheet1!Q2:R4"
+	// resp, err := srv.Spreadsheets.Values.Get(spreadsheetId, readRange).Do()
+	// if err != nil {
+	// 	return athleteLifts, err
+	// }
+
+	// if len(resp.Values) == 0 {
+	// 	fmt.Println("No data found.")
+	// 	return athleteLifts, nil
+	// } else {
+	// 	fmt.Println("Name, Lifting miles")
+	// 	for _, row := range resp.Values {
+	// 		// Print columns A and E, which correspond to indices 0 and 4.
+	// 		fmt.Printf("%s, %s\n", row[0], row[1])
+	// 		parsedValue, _ := strconv.ParseFloat(row[1].(string), 32)
+	// 		athletes[row[0].(string)] = float32(parsedValue)
+	// 	}
+	// }
+	// return athletes, nil
 }
