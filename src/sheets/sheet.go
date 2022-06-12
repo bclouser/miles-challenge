@@ -31,7 +31,25 @@ func getClient(config *oauth2.Config, tokenFilePath, authCodeInputUrl string) *h
 		displayAuthInstructions(config, authCodeInputUrl)
 		return nil
 	}
-	client := config.Client(context.Background(), tok)
+	fmt.Println("token expiry: " + tok.Expiry.String())
+	fmt.Println("refresh token: " + tok.RefreshToken)
+	tokenSource := config.TokenSource(oauth2.NoContext, tok)
+	newToken, err := tokenSource.Token()
+	if err != nil {
+		fmt.Println("Failed to get new token? Error: " + err.Error())
+		return nil
+	}
+
+	fmt.Println(newToken.Expiry.String())
+	fmt.Println(newToken.RefreshToken)
+	//client := oauth2.NewClient(oauth2.NoContext, tokenSource)
+	//savedToken, err = tokenSource.Token()
+	// From the docs
+	// Client returns an HTTP client using the provided token. The token will auto-refresh as necessary.
+	// The underlying HTTP transport will be obtained using the provided context. The returned client and its Transport should not be modified.
+	client := config.Client(oauth2.NoContext, tok)
+
+	//config.TokenSource().Token
 
 	// Save off the (potentially refreshed) token
 	saveToken(tokenFilePath, tok)
@@ -129,8 +147,25 @@ type SheetAthlete struct {
 }
 
 func parseAthleteColumns(sheetsData sheets.ValueRange, startIndex, stopIndex int) ([]LiftSession, error) {
-	// Do the actual parsing
-	return []LiftSession{}, nil
+	liftSessions := []LiftSession{}
+	for _, row := range sheetsData.Values {
+		date := row[startIndex].(string)
+		timeMinutes, _ := strconv.Atoi(row[startIndex+1].(string))
+		miles, _ := strconv.ParseFloat(row[startIndex+2].(string), 32)
+		if date == "" {
+			continue
+		}
+		dateTime, err := time.Parse("1/2/2006", date)
+		if err != nil {
+			return liftSessions, err
+		}
+		liftSessions = append(liftSessions, LiftSession{
+			Date:           dateTime,
+			MinuteDuration: timeMinutes,
+			MileConversion: float32(miles),
+		})
+	}
+	return liftSessions, nil
 }
 
 func GetAthleteLiftData(spreadsheetId, credentialsFilePath, tokenPath, authCodeInputUrl string) (map[string][]LiftSession, error) {

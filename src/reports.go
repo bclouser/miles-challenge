@@ -24,9 +24,12 @@ type Report struct {
 // Total miles
 
 type AthleteCounts struct {
-	RunMiles  float32 `json:"run_miles"`
-	HikeMiles float32 `json:"hike_miles"`
-	LiftMiles float32 `json:"lift_miles"`
+	RunMiles    float32 `json:"run_miles"`
+	RunMinutes  int     `json:"run_minutes"`
+	HikeMiles   float32 `json:"hike_miles"`
+	HikeMinutes int     `json:"hike_minutes"`
+	LiftMiles   float32 `json:"lift_miles"`
+	LiftMinutes int     `json:"lift_minutes"`
 }
 
 func (a *AthleteCounts) Total() float32 {
@@ -91,9 +94,9 @@ func GetStravaReport(users []StravaUser) ([]UserReport, error) {
 		}
 
 		totalActivities := len(activities)
-		fmt.Println(strconv.Itoa(totalActivities) + " activities posted in the last year for: " + freshUser.Athlete.Firstname)
+		fmt.Println(strconv.Itoa(totalActivities) + " strava activities posted in the last year for: " + freshUser.Athlete.Firstname)
 		for _, activity := range activities {
-			fmt.Println("Date: " + activity.StartDateLocal.String() + " Name: " + activity.Name + ", type: " + activity.Type + ", Distance: " + strconv.FormatFloat(float64(metersToMiles(activity.Distance)), 'f', 3, 32))
+			//fmt.Println("Date: " + activity.StartDateLocal.String() + " Name: " + activity.Name + ", type: " + activity.Type + ", Distance: " + floatStr(metersToMiles(activity.Distance)))
 			// Was this activity today?
 			if now.Year() == activity.StartDateLocal.Year() && now.YearDay() == activity.StartDateLocal.YearDay() {
 				if activity.Type == "Run" {
@@ -154,6 +157,42 @@ func GenerateFormattedReport() string {
 	return formattedReport
 }
 
+func sortedReports(atheleteReportsIn []UserReport) []UserReport {
+	// Sort with greater so that  the first element is "first place"
+	sort.SliceStable(atheleteReportsIn, func(i, j int) bool { return greater(atheleteReportsIn[i].YearToDate, atheleteReportsIn[j].YearToDate) })
+	return atheleteReportsIn
+}
+
+/*
+Ok, so we should really design this to have interfaces called "AthleteDataGetter"
+and we would have one for strava and google sheets and then we can just be like
+stravaDataFetcher.GetAll("ben") and would return a tuple of year, day AthleteCounts{}
+*/
+
+func GetGoogleSheetReport() ([]UserReport, error) {
+	reports := []UserReport{}
+	// google sheets only track lift data
+	userLiftingReports, err := sheets.GetAthleteLiftData(config.GoogleSheetsID, config.GoogleCloudCredentialsFilePath, config.GoogleCloudSavedTokenPath, authCodeInputUrl)
+	if err != nil {
+		return reports, err
+	}
+	now := time.Now()
+	for userName, liftReports := range userLiftingReports {
+		userReport := UserReport{AthleteFirstName: userName}
+		for _, liftReport := range liftReports {
+			userReport.YearToDate.LiftMiles += liftReport.MileConversion
+			userReport.YearToDate.LiftMinutes += liftReport.MinuteDuration
+			// If this activity was today
+			if now.Year() == liftReport.Date.Year() && now.YearDay() == liftReport.Date.YearDay() {
+				userReport.Day.LiftMiles += liftReport.MileConversion
+				userReport.Day.LiftMinutes += liftReport.MinuteDuration
+			}
+		}
+		reports = append(reports, userReport)
+	}
+	return reports, nil
+}
+
 func GenerateReport() []UserReport {
 	athleteReports := []UserReport{}
 	// get Strava users from config
@@ -168,23 +207,35 @@ func GenerateReport() []UserReport {
 		return athleteReports
 	}
 
+	/*
+			type LiftSession struct {
+			Date           time.Time
+			MinuteDuration int
+			MileConversion float32
+		}
+	*/
 	// Get data from google sheets
-	liftingReports, err := sheets.GetSheetData(config.GoogleSheetsID, config.GoogleCloudCredentialsFilePath, config.GoogleCloudSavedTokenPath, authCodeInputUrl)
+	//func GetAthleteLiftData(spreadsheetId, credentialsFilePath, tokenPath, authCodeInputUrl string) (map[string][]LiftSession, error)
+	liftingReports, err := GetGoogleSheetReport()
 	if err != nil {
 		fmt.Println("Failed to retrieve lifting-miles from google sheet. Error: " + err.Error())
-		return athleteReports
+		return sortedReports(athleteReports)
 	}
 
-	// Aggregate and sort data
-	for i, report := range athleteReports {
-		if value, ok := liftingReports[report.AthleteFirstName]; ok {
-			athleteReports[i].YearToDate.LiftMiles += value
-
-			// Dang, until we have dates, we cant calculate daily lift miles :(
-
+	// Aggregate and sort data (this is gross)
+	// again we should really have generic interfaces called DataAdder{}
+	// and these functions be like reports = sheetsDataAdder.Add(reports)
+	for i, _ := range athleteReports {
+		// find the matching athlete in the sheets
+		for _, sheetReport := range liftingReports {
+			if athleteReports[i].AthleteFirstName == sheetReport.AthleteFirstName {
+				fmt.Println(athleteReports[i].AthleteFirstName + " has recorded " + floatStr(sheetReport.YearToDate.LiftMiles) + " exercise miles in the google sheet")
+				athleteReports[i].YearToDate.LiftMiles += sheetReport.YearToDate.LiftMiles
+				athleteReports[i].YearToDate.LiftMinutes += sheetReport.YearToDate.LiftMinutes
+				athleteReports[i].Day.LiftMiles += sheetReport.Day.LiftMiles
+				athleteReports[i].Day.LiftMinutes += sheetReport.Day.LiftMinutes
+			}
 		}
 	}
-	// Sort with greater so that  the first element is "first place"
-	sort.SliceStable(athleteReports, func(i, j int) bool { return greater(athleteReports[i].YearToDate, athleteReports[j].YearToDate) })
-	return athleteReports
+	return sortedReports(athleteReports)
 }

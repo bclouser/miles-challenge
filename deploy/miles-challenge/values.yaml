@@ -86,3 +86,16 @@ persistence:
   storageClass: "local-path"
   accessMode: ReadWriteOnce
   size: 128Mi
+  reclaimPolicy: Retain
+
+secret:
+  SLACK_CHANNEL_HOOK_URL: "<slack hook url>"
+  STRAVA_API_CLIENT_ID: "<strava client id>"
+  STRAVA_API_CLIENT_SECRET: "<strava client secret>"
+  STRAVA_TOKEN_ENDPOINT: "https://www.strava.com/oauth/token"
+  GOOGLE_SHEETS_SHEET_ID: "<google sheets id>"
+  NON_VOLATILE_STORAGE_DIR: "/data/run"
+  GOOGLE_CLOUD_CREDENTIALS_PATH: "/data/gc/google-cloud-credentials.json"
+  # Add the google cloud credentials json file blow
+  #GOOGLE_CLOUD_CREDENTIALS_JSON: |-
+  

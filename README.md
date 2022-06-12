@@ -19,7 +19,11 @@ helm upgrade --install miles-challenge ./deploy/miles-challenge/
 ```
 
 
-
+## Creating the credentials
+The miles-challenge helm chart values.yaml should be updated with all necessary credentials for both strava and google cloud.
+### Strava
+strava-authorize.txt`
+When miles-challenge runs the first time, the logs will display a google-cloud link which must be manually authorized
 
 # To build the miles-challenge app
 `cd app`

@@ -292,11 +292,36 @@ func main() {
 		err := sheets.SetAuthCodeRetrievedFromWeb(code)
 		if err != nil {
 			fmt.Println("Failed to get token from auth code: " + err.Error())
+			http.Error(w, "Failed to exchange auth code for access token. Error!", http.StatusInternalServerError)
 		}
+		fmt.Fprintf(w, "Token exchange was successful! Thank You! You can close this browser window/tab now")
 	}).Methods("GET")
 
 	rtr.HandleFunc("/api/slack/post-report", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Println("Request from: " + html.EscapeString(r.URL.Path))
+		fmt.Println("== Request from: " + html.EscapeString(r.URL.Path))
+		report := "*    Requested Report!* \n\n" + GenerateFormattedReport()
+
+		// reqStruct := struct {
+		// 	Text string `json:"text"`
+		// }{Text: report}
+
+		// data, _ := json.Marshal(reqStruct)
+		fmt.Fprintln(w, report)
+	})
+
+	rtr.HandleFunc("/api/slack/norm-cmd", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Println("== Request from: " + html.EscapeString(r.URL.Path))
+		r.ParseForm()
+		fmt.Println("request.Form::")
+		for key, value := range r.Form {
+			fmt.Printf("Key:%s, Value:%s\n", key, value)
+		}
+		fmt.Println("\nrequest.PostForm::")
+		for key, value := range r.PostForm {
+			fmt.Printf("Key:%s, Value:%s\n", key, value)
+		}
+		fmt.Printf("\n text field in FormValue:%s\n", r.FormValue("text"))
+
 		report := "*    Requested Report!* \n\n" + GenerateFormattedReport()
 
 		// reqStruct := struct {
@@ -384,7 +409,13 @@ func main() {
 	s.Every(1).Day().At("20:30").Do(DoDailyReport)
 	s.StartAsync()
 
-	sheets.GetSheetData(config.GoogleSheetsID, config.GoogleCloudCredentialsFilePath, config.GoogleCloudSavedTokenPath, authCodeInputUrl)
+	userLIftSessions, err := sheets.GetAthleteLiftData(config.GoogleSheetsID, config.GoogleCloudCredentialsFilePath, config.GoogleCloudSavedTokenPath, authCodeInputUrl)
+	if err != nil {
+		fmt.Println("Failed to get sheet exercises: " + err.Error())
+	}
+	for firstName, liftSessions := range userLIftSessions {
+		fmt.Println(firstName + " has " + strconv.Itoa(len(liftSessions)) + " exercises tracked in the google sheet")
+	}
 
 	fmt.Println("Starting web server... on port 8081")
 	log.Fatal(http.ListenAndServe(":8081", nil))
